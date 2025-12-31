@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 关键：viewport 保持不缩放 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no"/>
+  <title>新年快乐</title>
+
+  <style>
+    :root{
+      --bg1:#fff7ee;
+      --ink:#6d4b3e;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg1);
+      font-family: "Ma Shan Zheng","ZCOOL KuaiLe", cursive, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+      touch-action: manipulation;
+    }
+    body{
+      background: radial-gradient(1200px 800px at 50% 90%, #fff1d6 0%, rgba(255,241,214,0) 60%),
+                  radial-gradient(900px 600px at 10% 10%, #ffe8ef 0%, rgba(255,232,239,0) 55%),
+                  radial-gradient(1000px 900px at 90% 20%, #f7f0ff 0%, rgba(247,240,255,0) 60%),
+                  linear-gradient(180deg, #fffaf2, #fff7ee);
+    }
+
+    canvas{
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100vw;      /* 关键：CSS 尺寸锁死 */
+      height: 100vh;
+      inset: 0;
+      display: block;
+      touch-action: manipulation;
+    }
+
+    #tip{
+      position: fixed;
+      left: 50%;
+      bottom: calc(22px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      font-size: 18px;
+      color: rgba(120,80,60,0.85);
+      background: rgba(255,255,255,0.6);
+      padding: 8px 14px;
+      border-radius: 999px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+      backdrop-filter: blur(4px);
+      user-select: none;
+      z-index: 30;
+      pointer-events: none; /* 让点击穿透tip，确保能点到body触发音乐 */
+      transition: opacity 0.5s;
+    }
+
+    #audioToggle{
+      position: fixed;
+      right: 14px;
+      top: calc(14px + env(safe-area-inset-top));
+      font-size: 14px;
+      color: var(--ink);
+      background: rgba(255,255,255,0.75);
+      padding: 8px 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+      user-select: none;
+      cursor: pointer;
+      z-index: 30;
+    }
+
+    /* 遮罩层：用于点击信纸外部关闭信纸 */
+    #mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 9;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.6s ease;
+      backdrop-filter: blur(2px);
+    }
+    #mask.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* 信纸（高度用 dvh，支持内部滚动） */
+    #paper{
+      position: fixed;
+      left: 50%;
+      top: 45%;
+      transform: translate(-50%, -50%) scale(0.6);
+      width: min(86vw, 520px);
+      height: min(70dvh, 650px);
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,247,235,0.96)),
+                  repeating-linear-gradient(90deg, rgba(180,140,110,0.03) 0 2px, transparent 2px 6px);
+      border: 1px solid rgba(160,120,90,0.25);
+      border-radius: 18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.12);
+      padding: 22px 20px;
+      opacity: 0;
+      filter: saturate(1.05);
+      transform-origin: center;
+      transition: opacity 1.2s ease, transform 1.2s ease;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      z-index: 10;
+    }
+    #paper.show{
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    #paper.fold{
+      transform: translate(-50%, -50%) scale(0.9) scaleY(0.05);
+      opacity: 0;
+      transition: transform 1.4s ease, opacity 1.0s ease;
+      pointer-events: none;
+    }
+
+    #paper::before,
+    #paper::after{
+      content:"";
+      position:absolute;
+      width:28px;
+      height:28px;
+      background: radial-gradient(circle at 0 0, rgba(140,90,60,0.25), transparent 70%);
+      opacity:.25;
+      pointer-events:none;
+    }
+    #paper::before{ right:0; top:0; transform: rotate(90deg); }
+    #paper::after{ left:0; bottom:0; transform: rotate(-90deg); }
+
+    #letterContent{
+      white-space: pre-wrap;
+      font-size: clamp(16px, 4.2vw, 22px);
+      line-height: 1.8;
+      color: #5a3c2f;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+      margin-bottom: 20px;
+    }
+
+    #dove{
+      position: fixed;
+      left: -20vw;
+      top: 20vh;
+      font-size: 34px;
+      opacity: 0;
+      transform: translateX(0) translateY(0) scale(1);
+      /* 统一使用 transition 控制位置移动，实现平滑飞行动画 */
+      transition: left 2.5s ease-in-out, top 2.5s ease-in-out, opacity 1s ease, transform 2.5s ease-in-out;
+      pointer-events: none;
+      z-index: 20;
+    }
+    
+    /* 信鸽停留状态：飞到右上角 */
+    #dove.rest {
+      left: 85vw;  /* 屏幕右侧 */
+      top: 8vh;    /* 屏幕上方 */
+      opacity: 1;
+      transform: scale(1.3) rotate(10deg);
+      cursor: pointer;
+      pointer-events: auto; /* 允许点击 */
+      animation: hoverDove 3s ease-in-out infinite alternate;
+    }
+
+    @keyframes hoverDove {
+      0% { transform: scale(1.3) rotate(10deg) translateY(0); }
+      100% { transform: scale(1.3) rotate(10deg) translateY(-10px); }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="audioToggle">🎵 音乐：关</div>
+  <div id="tip">👇 点击屏幕开始放烟花</div>
+
+  <!-- 增加遮罩层 -->
+  <div id="mask"></div>
+
+  <div id="paper"><div id="letterContent"></div></div>
+  <div id="dove">🕊️</div>
+
+  <audio id="bgm" loop preload="auto">
+    <source src="./bgm.mp3" type="audio/mpeg">
+  </audio>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('c');
+      const ctx = canvas.getContext('2d', { alpha: true });
+      const tip = document.getElementById('tip');
+      const paper = document.getElementById('paper');
+      const mask = document.getElementById('mask');
+      const letterContent = document.getElementById('letterContent');
+      const dove = document.getElementById('dove');
+      const bgm = document.getElementById('bgm');
+      const audioToggle = document.getElementById('audioToggle');
+
+      // ======= 适配核心：固定 CSS 尺寸 + DPR 绘制，禁止累计 scale =======
+      let W = 0, H = 0, DPR = 1;
+
+      function getViewportSize() {
+        const vv = window.visualViewport;
+        const w = Math.max(1, Math.round(vv ? vv.width : window.innerWidth));
+        const h = Math.max(1, Math.round(vv ? vv.height : window.innerHeight));
+        return { w, h };
+      }
+
+      function resize(force = false) {
+        const { w, h } = getViewportSize();
+        const dpr = Math.min(3, window.devicePixelRatio || 1); 
+        if (!force && w === W && h === H && dpr === DPR) return;
+
+        W = w; H = h; DPR = dpr;
+
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
+
+        canvas.width = Math.round(W * DPR);
+        canvas.height = Math.round(H * DPR);
+
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+
+      resize(true);
+      window.addEventListener('resize', () => resize(false), { passive: true });
+      window.addEventListener('orientationchange', () => setTimeout(() => resize(true), 50), { passive: true });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => resize(false), { passive: true });
+        window.visualViewport.addEventListener('scroll', () => resize(false), { passive: true });
+      }
+
+      // ✅ 允许在信纸区域内正常滚动
+      document.addEventListener('touchmove', (e) => {
+        const target = e.target;
+        if (target && target.closest && target.closest('#paper')) {
+          return;
+        }
+        e.preventDefault();
+      }, { passive: false });
+
+      // ======= 🎵 音乐控制逻辑 =======
+      let audioOn = false;
+
+      function tryPlayAudio() {
+        if (!audioOn && bgm.paused) {
+          bgm.play().then(() => {
+            audioOn = true;
+            audioToggle.textContent = "🎵 音乐：开";
+            document.removeEventListener('click', tryPlayAudio);
+            document.removeEventListener('touchstart', tryPlayAudio);
+          }).catch((e) => {
+            console.log("自动播放被拦截，等待下一次交互", e);
+          });
+        }
+      }
+
+      document.addEventListener('WeixinJSBridgeReady', function() { tryPlayAudio(); }, false);
+      document.addEventListener('click', tryPlayAudio, { once: false });
+      document.addEventListener('touchstart', tryPlayAudio, { once: false });
+
+      audioToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (audioOn) {
+          bgm.pause();
+          audioOn = false;
+          audioToggle.textContent = "🎵 音乐：关";
+        } else {
+          bgm.play().then(() => {
+            audioOn = true;
+            audioToggle.textContent = "🎵 音乐：开";
+          }).catch(e => console.log(e));
+        }
+      }, { passive: false });
+
+
+      // ======= 阶段状态机 =======
+      const STAGE = { FIREWORKS:1, TRANSFORM:2, LETTER:3, LOOP:4 };
+      let stage = STAGE.FIREWORKS;
+
+      // ======= 祝福逐字 =======
+      const fullBlessingRaw = "祝世界上最最最可爱，最最最温柔，最最最好的妹妹新年快乐，万事如意，身体健康，高考顺利！";
+      const blessingChars = [...fullBlessingRaw];
+      let blessingIndex = 0;
+      let blessingShown = "";
+      let blessingVisible = true;
+
+      function drawBlessingText() {
+        if (!blessingShown || !blessingVisible) return;
+
+        ctx.save();
+        ctx.font = "bold 28px Ma Shan Zheng, ZCOOL KuaiLe, cursive";
+        ctx.fillStyle = "rgba(180, 60, 80, 0.95)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        const lines = blessingShown.split('，');
+        const lineHeight = 42;
+        const totalHeight = lines.length * lineHeight;
+        const startY = H / 2 - totalHeight / 2 + lineHeight / 2;
+
+        ctx.shadowColor = "rgba(255, 200, 150, 0.4)";
+        ctx.shadowBlur = 8;
+
+        lines.forEach((line, i) => {
+          const displayLine = i < lines.length - 1 ? line + '，' : line;
+          const alpha = Math.min(1, 0.7 + Math.sin(Date.now() / 1000 + i) * 0.3);
+          ctx.globalAlpha = alpha;
+          ctx.fillText(displayLine, W / 2, startY + i * lineHeight);
+        });
+
+        ctx.restore();
+      }
+
+      // ======= 烟花粒子系统(Canvas) =======
+      const fireworks = [];
+      const particles = [];
+      const gravity = 0.04;
+
+      function rand(min, max){ return Math.random()*(max-min)+min; }
+
+      function softColor(){
+        const hues = [10, 25, 40, 320, 280, 200];
+        const h = hues[Math.floor(Math.random()*hues.length)];
+        const s = rand(60, 85);
+        const l = rand(60, 75);
+        return `hsl(${h} ${s}% ${l}%)`;
+      }
+
+      class Firework{
+        constructor(x, y, tx, ty, size=1, onExplode=null){
+          this.x=x; this.y=y; this.tx=tx; this.ty=ty;
+          const angle=Math.atan2(ty-y, tx-x);
+          const speed=rand(6,8)*size;
+          this.vx=Math.cos(angle)*speed;
+          this.vy=Math.sin(angle)*speed;
+          this.size=size;
+          this.color=softColor();
+          this.trail=[];
+          this.onExplode=onExplode;
+        }
+        update(){
+          this.trail.push([this.x,this.y]);
+          if(this.trail.length>8) this.trail.shift();
+          this.x+=this.vx;
+          this.y+=this.vy;
+          this.vy+=gravity*0.6;
+          const dx=this.tx-this.x, dy=this.ty-this.y;
+          if(dx*dx+dy*dy<18*18){
+            this.explode();
+            return false;
+          }
+          return true;
+        }
+        draw(){
+          ctx.save();
+          ctx.strokeStyle=this.color;
+          ctx.lineWidth=2*this.size;
+          ctx.beginPath();
+          for(let i=0;i<this.trail.length;i++){
+            const [tx,ty]=this.trail[i];
+            if(i===0) ctx.moveTo(tx,ty);
+            else ctx.lineTo(tx,ty);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+        explode(){
+          const count = Math.floor(rand(40,60)*this.size);
+          for(let i=0;i<count;i++){
+            particles.push(new Particle(this.x,this.y,this.color,this.size));
+          }
+          if(this.onExplode) this.onExplode(this.x,this.y);
+        }
+      }
+
+      class Particle{
+        constructor(x,y,color,size=1){
+          this.x=x; this.y=y;
+          this.color=color;
+          const ang=rand(0,Math.PI*2);
+          const sp=rand(1.5,5.2)*size;
+          this.vx=Math.cos(ang)*sp;
+          this.vy=Math.sin(ang)*sp;
+          this.life=rand(50,90);
+          this.alpha=1;
+          this.size=size;
+        }
+        update(){
+          this.x+=this.vx;
+          this.y+=this.vy;
+          this.vy+=gravity;
+          this.vx*=0.985;
+          this.vy*=0.985;
+          this.life--;
+          this.alpha = this.life/90;
+          return this.life>0;
+        }
+        draw(){
+          ctx.save();
+          ctx.globalAlpha=this.alpha;
+          ctx.fillStyle=this.color;
+          ctx.shadowColor=this.color;
+          ctx.shadowBlur=10*this.size;
+          ctx.beginPath();
+          ctx.arc(this.x,this.y,rand(1.1,2.4)*this.size,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      function launchFirework(x, y, size=1, onExplode=null){
+        const startX = (x ?? rand(W*0.2, W*0.8));
+        const startY = H + 30;
+        const targetX = (x ?? startX);
+        const targetY = (y ?? rand(H*0.15, H*0.55));
+        fireworks.push(new Firework(startX,startY,targetX,targetY,size,onExplode));
+      }
+
+      // ======= 阶段2：大烟花 + 新年快乐 =======
+      const NYE_HOLD_MS = 500;   // “新年快乐”停留时长（越小越快进入信）
+      const NYE_FADE_MS = 600;   // “新年快乐”淡出时长
+
+      let nyeTextAlpha = 0;
+      let nyeFading = false;
+      let nyeStartTime = 0;
+
+      function startStage2(){
+        stage = STAGE.TRANSFORM;
+        blessingVisible = false;
+
+        setTimeout(() => {
+          launchFirework(W/2, H*0.28, 1.5, () => {
+            nyeTextAlpha = 1;
+            nyeFading = false;
+            nyeStartTime = performance.now();
+
+            setTimeout(() => {
+              nyeFading = true;
+              // 让信纸在“新年快乐”出现后尽快展开
+              setTimeout(startStage3, 300);
+            }, NYE_HOLD_MS);
+          });
+        }, 600);
+      }
+
+      function drawNYEText(){
+        if(nyeTextAlpha<=0) return;
+        const t = performance.now();
+        if(nyeFading){
+          const dt = (t - (nyeStartTime+NYE_HOLD_MS))/NYE_FADE_MS;
+          nyeTextAlpha = Math.max(0, 1-dt);
+        }
+        ctx.save();
+        ctx.globalAlpha = nyeTextAlpha;
+        ctx.font = "64px Ma Shan Zheng, ZCOOL KuaiLe, cursive";
+        ctx.fillStyle = "rgba(233,120,140,0.95)";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.shadowColor="rgba(240,170,120,0.8)";
+        ctx.shadowBlur=18;
+        ctx.fillText("新年快乐", W/2, H*0.42);
+        ctx.restore();
+      }
+
+      // ======= 阶段3：信纸逐字 =======
+      const letterText = `To zjy：
+
+新年快乐！！！！！
+
+记得第一次认识你的时候我才高一，我也不知道为什么前面的十几年我一点印象都没有，当时高一时我都懵了，我竟然有这么这么可爱的妹妹，从小到大都超想有个妹妹，挺遗憾的，高中忙，我也不怎么社交，没怎么和你聊天
+
+这个学期真的好忙啊，我几乎一个学期的时间学着三四个学期的内容，那段时间压力真的超级超级大，每晚都几乎在床上发呆一个小时才睡得着，我跟父母说不了，他们只会说每个人都这样，朋友几乎都是男孩子，说这种事情挺奇怪的，幸好有你陪着我聊天，真的真的超级谢谢你，挺多时候微信弹个消息我都超级期盼是你的，你真的是全宇宙最最最好的妹妹！！！！！！！！
+
+可能在和你也感受得到，我比较孤独，也不太会主动说话、聊天，为什么在这个学期话突然变多了呢，一是现在才有空，二是和你聊天真的很有趣，高三太苦逼了，我希望能给我的妹妹带来一些惊喜与温暖
+
+我不太会说煽情的话，现实中恐怕连上面的都说不出口，˃̣̣̥᷄⌓˂̣̣̥᷅ 但还是想说：于我而言，有你陪我聊天真的真的幸运至极，如果我也给我的微信列表排个序的话，那你一定是A+++++++++++++！！！！！♡(.◜ω◝.)♡
+
+好吧，我并不是一个很会表达感情的人，我的文字和话语对于我的感情太苍白了（唉，有好多想说的，但又不知道说什么），那就到这吧，希望妹妹在今后的每一天都能开开心心！！！！  (..›ᴗ‹..) ⸝⸝⸝⸝⸝ ♡  
+
+超级超级爱你的哥哥(♡>𖥦<)/♥`;
+
+      function typeWriter(el, text, minDelay=300, maxDelay=500){
+        return new Promise(resolve=>{
+          let i=0;
+          el.textContent="";
+          const tick=()=>{
+            el.textContent += text[i++];
+            if(i>=text.length){ resolve(); return; }
+            setTimeout(tick, rand(minDelay,maxDelay));
+          };
+          tick();
+        });
+      }
+
+      function startStage3(){
+        stage = STAGE.LETTER;
+        paper.classList.add('show');
+        tip.style.opacity = 0;
+        
+        // 修改1：调整打字速度（更快），减小每两个字符浮现间隔
+        typeWriter(letterContent, letterText, 150, 350).then(()=>{
+          setTimeout(startStage4, 2500);
+        });
+      }
+
+      // ======= 阶段4：收拢 → 信鸽停留 → 循环交互 =======
+      function startStage4(){
+        paper.classList.add('fold'); // 收起信纸
+        
+        // 延时让信纸收起动画播放一会，然后显示信鸽
+        setTimeout(()=>{
+          paper.classList.remove('show'); // 确保隐藏
+          // 修改2：信鸽飞向右上角并停留 (.rest)
+          dove.classList.add('rest');
+          
+          launchFirework(W/2, H*0.28, 1.5, ()=>{
+            nyeTextAlpha = 1;
+            nyeFading = true;
+            nyeStartTime = performance.now() - 1500;
+          });
+        }, 800);
+
+        setTimeout(()=>{
+          stage = STAGE.LOOP;
+          tip.style.opacity = 1;
+          tip.innerHTML = "🕊️ 点击信鸽看信<br>🎆 点击屏幕放烟花";
+          startAutoLoop();
+        }, 3000);
+      }
+
+      // ======= 交互逻辑：信鸽与信纸切换 =======
+      
+      // 点击信鸽 -> 展开信纸
+      dove.addEventListener('click', (e) => {
+        e.stopPropagation(); // 阻止冒泡，防止触发烟花
+        if(stage === STAGE.LOOP) {
+          showLetter();
+        }
+      });
+
+      // 点击遮罩 -> 收起信纸
+      mask.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideLetter();
+      });
+
+      function showLetter() {
+        // 隐藏信鸽
+        dove.classList.remove('rest');
+        dove.style.opacity = 0; // 临时隐藏
+        
+        // 显示信纸
+        paper.classList.remove('fold');
+        paper.classList.add('show');
+        mask.classList.add('show');
+        
+        tip.style.opacity = 0; // 看信时隐藏提示
+      }
+
+      function hideLetter() {
+        // 收起信纸
+        paper.classList.add('fold');
+        paper.classList.remove('show');
+        mask.classList.remove('show');
+        
+        // 显示信鸽
+        dove.style.opacity = 1;
+        dove.classList.add('rest');
+        
+        tip.style.opacity = 1; // 恢复提示
+      }
+
+
+      let autoLoopTimer=null;
+      function startAutoLoop(){
+        if(autoLoopTimer) clearInterval(autoLoopTimer);
+        autoLoopTimer = setInterval(()=>{
+          if(stage!==STAGE.LOOP) return;
+          // 如果信纸打开中，减少自动烟花频率或停止，避免干扰阅读? 
+          // 保持原有逻辑：继续放烟花做背景
+          launchFirework();
+        }, rand(5000,8000));
+      }
+
+      // ======= 点击交互 =======
+      let isProcessingClick = false;
+
+      function handleClick(e){
+        // 尝试触发音乐
+        tryPlayAudio();
+
+        const p = e.touches ? e.touches[0] : e;
+        const x = p.clientX;
+        const y = p.clientY;
+
+        // 检查点击目标是否是信鸽或信纸内部 (虽然 stopPropagation 已处理，双重保险)
+        if (e.target.closest('#dove') || e.target.closest('#paper')) return;
+
+        if(stage===STAGE.FIREWORKS){
+          if (isProcessingClick) return;
+
+          if (blessingIndex < blessingChars.length) {
+            isProcessingClick = true;
+            const ch = blessingChars[blessingIndex];
+
+            launchFirework(x, y, 1, ()=>{
+              // 防止重复点击导致错位
+              if (blessingIndex < blessingChars.length && ch === blessingChars[blessingIndex]) {
+                blessingShown += ch;
+                blessingIndex++;
+                if(blessingIndex>=blessingChars.length){
+                  setTimeout(startStage2, 600);
+                }
+              }
+              setTimeout(() => { isProcessingClick = false; }, 200);
+            });
+          } else {
+            launchFirework(x, y, 1);
+          }
+        } else if(stage===STAGE.LOOP){
+          // 只有在信纸没打开时，点击屏幕才放烟花 (可选体验优化，这里允许背景放烟花)
+          // 如果 mask 显示中，handleClick 不会被触发，因为 mask 遮住了 canvas
+          launchFirework(x, y);
+        }
+      }
+
+      // 绑定到 window 可能会捕获 mask 的点击，所以这里要注意
+      // mask 有 stopPropagation，所以点击 mask 不会触发这里的 handleClick
+      window.addEventListener('click', handleClick, { passive:false });
+      window.addEventListener('touchstart', handleClick, { passive:false });
+
+      // ======= 主渲染循环 =======
+      function animate(){
+        requestAnimationFrame(animate);
+
+        // 防止在 resize 后未及时更新
+        resize(false);
+
+        ctx.clearRect(0,0,W,H);
+
+        // 背景星点（轻微）
+        ctx.save();
+        for(let i=0;i<18;i++){
+          ctx.globalAlpha=0.06;
+          ctx.fillStyle="white";
+          ctx.beginPath();
+          ctx.arc(rand(0,W), rand(0,H*0.6), rand(1,2.2), 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // 更新/绘制烟花 & 粒子
+        for(let i=fireworks.length-1;i>=0;i--){
+          const f=fireworks[i];
+          if(!f.update()) fireworks.splice(i,1);
+          else f.draw();
+        }
+        for(let i=particles.length-1;i>=0;i--){
+          const p=particles[i];
+          if(!p.update()) particles.splice(i,1);
+          else p.draw();
+        }
+
+        drawBlessingText();
+        drawNYEText();
+      }
+
+      // 开始时放几个烟花引导用户
+      setTimeout(() => {
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => {
+            launchFirework(
+              rand(W * 0.3, W * 0.7),
+              rand(H * 0.3, H * 0.5),
+              0.8
+            );
+          }, i * 500);
+        }
+      }, 1000);
+
+      animate();
+    })();
+  </script>
+</body>
+</html>
